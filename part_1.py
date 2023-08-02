@@ -42,14 +42,21 @@ def find_tfl_lights(c_image: np.ndarray,
     :param kwargs: Whatever config you want to pass in here.
     :return: 4-tuple of x_red, y_red, x_green, y_green.
     """
+
+    # Apply max filter to remove false positive detections
+    max_filtered_image = ndimage.maximum_filter(c_image, 2)
+    # cv2.imshow("max", max_filtered_image)
+
     # Add blur to the image to reduce noise
-    c_image = cv2.GaussianBlur(c_image, (3, 3), 0.65)
+    c_image = cv2.GaussianBlur(max_filtered_image, (3, 3), 0.5)
 
     # Convert the input RGB image to HSV color space
     hsv_image = cv2.cvtColor(c_image, cv2.COLOR_RGB2HSV)
+    # cv2.imshow("hsv", hsv_image)
 
     # Get the V channel from the HSV image
     v_channel = hsv_image[:, :, 2]
+    # cv2.imshow("channel", v_channel)
 
     # Apply convolution to enhance edges and intensity changes using the Laplacian kernel
     kernel = np.array([[-1, -1, -1],
@@ -63,7 +70,7 @@ def find_tfl_lights(c_image: np.ndarray,
 
     # Define the range of red and green colors in HSV space
     lower_red = np.array([0, 100, 100])
-    upper_red = np.array([10, 255, 255])
+    upper_red = np.array([30, 255, 255])
     lower_green = np.array([40, 100, 100])
     upper_green = np.array([90, 255, 255])
 
@@ -106,7 +113,7 @@ def show_image_and_gt(c_image: np.ndarray, objects: Optional[List[POLYGON_OBJECT
             plt.legend()
 
 
-def test_find_tfl_lights(image_path: str, image_json_path: Optional[str]=None, fig_num=None):
+def test_find_tfl_lights(image_path: str, image_json_path: Optional[str] = None, fig_num=None):
     """
     Run the attention code.
     """
