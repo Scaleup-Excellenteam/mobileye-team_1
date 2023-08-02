@@ -3,13 +3,14 @@ import json
 import argparse
 from pathlib import Path
 
-import numpy as np
 import cv2
-
+import numpy as np
+import scipy.ndimage as ndimage
 from scipy import signal as sg
-from scipy.ndimage import maximum_filter
 from PIL import Image
 import matplotlib.pyplot as plt
+from scipy.ndimage import maximum_filter
+from scipy.signal import convolve2d
 
 # if you wanna iterate over multiple files and json, the default source folder name is this.
 DEFAULT_BASE_DIR: str = './test'
@@ -24,82 +25,63 @@ GREEN_X_COORDINATES = List[int]
 GREEN_Y_COORDINATES = List[int]
 
 
-def detect_markers(c_image):
-    # Convert the RGB image to HSV color space
-    hsv_image = cv2.cvtColor(c_image, cv2.COLOR_BGR2HSV)
+def convolve(img):
+    kernel = np.array([[-1, -1, -1],
+                       [-1, 8, -1],
+                       [-1, -1, -1]])
 
-    # Define the lower and upper bounds for red and green colors in HSV
-    red_lower = np.array([0, 100, 100])
-    red_upper = np.array([10, 255, 255])
-    green_lower = np.array([50, 100, 100])
-    green_upper = np.array([70, 255, 255])
-
-    # Filter the pixels that fall within the ranges of red and green colors
-    red_mask = cv2.inRange(hsv_image, red_lower, red_upper)
-    green_mask = cv2.inRange(hsv_image, green_lower, green_upper)
-
-    # Get the x and y coordinates for the red and green markers
-    red_y_coords, red_x_coords = np.where(red_mask != 0)
-    green_y_coords, green_x_coords = np.where(green_mask != 0)
-
-    return red_x_coords, red_y_coords, green_x_coords, green_y_coords
+    return sg.convolve(img, kernel, "same")
 
 
 def find_tfl_lights(c_image: np.ndarray,
-                    **kwargs) -> Tuple[RED_X_COORDINATES, RED_Y_COORDINATES, GREEN_X_COORDINATES, GREEN_Y_COORDINATES]:
+                    **kwargs) -> Tuple:
     """
-    Detect candidates for TFL lights. Use c_image, kwargs and you imagination to implement.
+    Detect candidates for TFL lights. Use c_image, kwargs and your imagination to implement.
 
     :param c_image: The image itself as np.uint8, shape of (H, W, 3).
     :param kwargs: Whatever config you want to pass in here.
     :return: 4-tuple of x_red, y_red, x_green, y_green.
     """
+    # Add blur to the image to reduce noise
+    c_image = cv2.GaussianBlur(c_image, (3, 3), 0.65)
 
-    img = cv2.cvtColor(c_image, cv2.COLOR_BGR2GRAY)
-    kernel = np.ones((9, 9), np.uint8)
+    # Convert the input RGB image to HSV color space
+    hsv_image = cv2.cvtColor(c_image, cv2.COLOR_RGB2HSV)
 
-    tophat_image = cv2.morphologyEx(img, cv2.MORPH_TOPHAT, kernel)
+    # Get the V channel from the HSV image
+    v_channel = hsv_image[:, :, 2]
 
-    ret, thresh = cv2.threshold(tophat_image, 100, 255, cv2.THRESH_BINARY)
+    # Apply convolution to enhance edges and intensity changes using the Laplacian kernel
+    kernel = np.array([[-1, -1, -1],
+                       [-1, 8, -1],
+                       [-1, -1, -1]])
+    convolved_v_channel = convolve2d(v_channel, kernel, mode='same')
 
-    dist_transform = cv2.distanceTransform(thresh, cv2.DIST_L2, 5)
-    ret, markers = cv2.connectedComponents(np.uint8(dist_transform))
-    # Make sure the background is not 0
-    markers += 1
-    watershed_image = cv2.watershed(c_image, markers)
+    # Threshold the convolved V channel to create a binary mask
+    threshold = 100
+    mask = (convolved_v_channel > threshold).astype(np.uint8)
 
-    # Grab the marker values and how many times they occur
-    values, counts = np.unique(watershed_image, return_counts=True)
+    # Define the range of red and green colors in HSV space
+    lower_red = np.array([0, 100, 100])
+    upper_red = np.array([10, 255, 255])
+    lower_green = np.array([40, 100, 100])
+    upper_green = np.array([90, 255, 255])
 
-    # Get the indices of where the segments are under the max size
-    segment_indices = np.where(counts <= 300)
-    markers = values[segment_indices]
+    # Create masks for red and green regions
+    mask_red = cv2.inRange(hsv_image, lower_red, upper_red) & mask
+    mask_green = cv2.inRange(hsv_image, lower_green, upper_green) & mask
 
-    x_coords, y_coords = [], []
+    # Find the coordinates of red and green regions
+    red_coords = np.argwhere(mask_red)
+    green_coords = np.argwhere(mask_green)
 
-    x_coords, y_coords = [], []
+    x_red, y_red = red_coords[:, 1], red_coords[:, 0]
+    x_green, y_green = green_coords[:, 1], green_coords[:, 0]
 
-    for marker in markers:
-        y_coords_temp, x_coords_temp = np.where(watershed_image == marker)
-        x_coords.extend(x_coords_temp.tolist())
-        y_coords.extend(y_coords_temp.tolist())
-
-    # Get the detected red and green markers
-    red_x_coords, red_y_coords, green_x_coords, green_y_coords = detect_markers(c_image)
-
-    # Return the coordinates as a tuple
-    result = (tuple(red_x_coords), tuple(red_y_coords), tuple(green_x_coords), tuple(green_y_coords))
-
-    return result
-
-
-def rgb_to_gray(rgb_image):
-    # Calculate the grayscale intensity using the formula
-    gray_image = np.dot(rgb_image[..., :3], [0.299, 0.587, 0.114]).astype(np.uint8)
-    return gray_image
+    return x_red, y_red, x_green, y_green
 
 
-### GIVEN CODE TO TEST YOUR IMPLENTATION AND PLOT THE PICTURES
+# GIVEN CODE TO TEST YOUR IMPLEMENTATION AND PLOT THE PICTURES
 def show_image_and_gt(c_image: np.ndarray, objects: Optional[List[POLYGON_OBJECT]], fig_num: int = None):
     # ensure a fresh canvas for plotting the image and objects.
     plt.figure(fig_num).clf()
@@ -116,7 +98,7 @@ def show_image_and_gt(c_image: np.ndarray, objects: Optional[List[POLYGON_OBJECT
             # gets the x coordinates (first column -> 0) anf y coordinates (second column -> 1)
             x_coordinates, y_coordinates = polygon_array[:, 0], polygon_array[:, 1]
             color = 'r'
-            plt.plot(x_coordinates, y_coordinates, color, label=image_object['label'])
+            # plt.plot(x_coordinates, y_coordinates, color, label=image_object['label'])
             labels.add(image_object['label'])
         if 1 < len(labels):
             # The legend provides a visual representation of the labels associated with the plotted objects.
