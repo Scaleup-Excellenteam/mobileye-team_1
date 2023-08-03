@@ -85,7 +85,107 @@ def find_tfl_lights(c_image: np.ndarray,
     x_red, y_red = red_coords[:, 1], red_coords[:, 0]
     x_green, y_green = green_coords[:, 1], green_coords[:, 0]
 
+    c_image_copy = c_image.copy()
+    draw_rectangles_around_points(c_image_copy, x_red, y_red, x_green, y_green)
+
+
+    # Show the image with rectangles
+    plt.imshow(c_image_copy)
+    plt.plot(x_red, y_red, 'ro', markersize=4)
+    plt.plot(x_green, y_green, 'go', markersize=4)
+
     return x_red, y_red, x_green, y_green
+
+
+def non_max_suppression(rectangles, overlap_threshold=0):
+    """
+    Perform non-maximum suppression on the list of rectangles.
+
+    :param rectangles: List of rectangles as (top_left_x, top_left_y, bottom_right_x, bottom_right_y).
+    :param overlap_threshold: Threshold to decide whether two rectangles should be merged.
+    :return: List of rectangles after non-maximum suppression.
+    """
+    if len(rectangles) == 0:
+        return []
+
+    rectangles = np.array(rectangles)
+
+    x1 = rectangles[:, 0]
+    y1 = rectangles[:, 1]
+    x2 = rectangles[:, 2]
+    y2 = rectangles[:, 3]
+
+    area = (x2 - x1 + 1) * (y2 - y1 + 1)
+
+    sorted_indexes = np.argsort(y2)
+
+    merged_rectangles = []
+
+    while len(sorted_indexes) > 0:
+        last = len(sorted_indexes) - 1
+        i = sorted_indexes[last]
+        merged_rectangles.append(rectangles[i])
+
+        xx1 = np.maximum(x1[i], x1[sorted_indexes[:last]])
+        yy1 = np.maximum(y1[i], y1[sorted_indexes[:last]])
+        xx2 = np.minimum(x2[i], x2[sorted_indexes[:last]])
+        yy2 = np.minimum(y2[i], y2[sorted_indexes[:last]])
+
+        width = np.maximum(0, xx2 - xx1 + 1)
+        height = np.maximum(0, yy2 - yy1 + 1)
+
+        intersection_area = width * height
+        union_area = area[i] + area[sorted_indexes[:last]] - intersection_area
+
+        iou = intersection_area / union_area
+
+        indexes_to_keep = np.where(iou <= overlap_threshold)[0]
+        sorted_indexes = sorted_indexes[indexes_to_keep]
+
+    return merged_rectangles
+
+
+def draw_rectangles_around_points(image: np.ndarray, red_x_coords: List[int], red_y_coords: List[int],
+                                 green_x_coords: List[int], green_y_coords: List[int]):
+    """
+    Draw rectangles around points with a specified width and height.
+
+    :param image: The input image as a numpy ndarray.
+    :param red_x_coords: The x-coordinates of the red points.
+    :param red_y_coords: The y-coordinates of the red points.
+    :param green_x_coords: The x-coordinates of the green points.
+    :param green_y_coords: The y-coordinates of the green points.
+    """
+    red_rectangles = []
+    green_rectangles = []
+
+    for x, y in zip(red_x_coords, red_y_coords):
+        top_left_x = x - 15
+        top_left_y = y - 20
+        bottom_right_x = x + 15
+        bottom_right_y = y + 60
+
+        red_rectangles.append((top_left_x, top_left_y, bottom_right_x, bottom_right_y))
+
+    for x, y in zip(green_x_coords, green_y_coords):
+        top_left_x = x - 15
+        top_left_y = y - 60
+        bottom_right_x = x + 15
+        bottom_right_y = y + 20
+
+        green_rectangles.append((top_left_x, top_left_y, bottom_right_x, bottom_right_y))
+
+    # Apply non-maximum suppression to merge intersecting rectangles
+    red_rectangles = non_max_suppression(red_rectangles)
+    green_rectangles = non_max_suppression(green_rectangles)
+
+    for rect in red_rectangles:
+        cv2.rectangle(image, (rect[0], rect[1]), (rect[2], rect[3]), (255, 0, 0), 1)
+
+    for rect in green_rectangles:
+        cv2.rectangle(image, (rect[0], rect[1]), (rect[2], rect[3]), (0, 255, 0), 1)
+
+
 
 
 # GIVEN CODE TO TEST YOUR IMPLEMENTATION AND PLOT THE PICTURES
