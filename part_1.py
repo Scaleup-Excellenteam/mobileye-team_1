@@ -1,8 +1,8 @@
+import os
 from typing import List, Optional, Union, Dict, Tuple
 import json
 import argparse
 from pathlib import Path
-
 import cv2
 import numpy as np
 from PIL import Image
@@ -10,7 +10,11 @@ import matplotlib.pyplot as plt
 from scipy.ndimage import maximum_filter
 from scipy.signal import convolve2d
 
-DEFAULT_BASE_DIR: str = './test'
+
+import utils as ut
+
+
+DEFAULT_BASE_DIR: str = './test2'
 TFL_LABEL = ['traffic light']
 POLYGON_OBJECT = Dict[str, Union[str, List[int]]]
 RED_X_COORDINATES = List[int]
@@ -18,69 +22,116 @@ RED_Y_COORDINATES = List[int]
 GREEN_X_COORDINATES = List[int]
 GREEN_Y_COORDINATES = List[int]
 
-def high_pass_filter(image: np.ndarray, size: int = 3) -> np.ndarray:
+
+def red_filter(hsv_image) -> np.ndarray:
     """
-    Filter the image using a high pass filter.
-    :param image: The image itself as np.uint8, shape of (H, W, 3).
-    :param size: The size of the filter.
+    Red filter for the image.
+    :param hsv_image: The image itself as np.uint8, shape of (H, W, 3).
     :return: The filtered image.
     """
-    kernel = np.ones((size, size)) / -1
-    kernel[1, 1] = 8
-    return convolve2d(image, kernel, mode='same')
+    lower_red = np.array([0, 100, 100])
+    upper_red = np.array([30, 255, 255])
+    return cv2.inRange(hsv_image, lower_red, upper_red)
 
 
-def non_max_suppression(image: np.ndarray, size: int = 5) -> np.ndarray:
+def green_filter(hsv_image) -> np.ndarray:
     """
-    Suppress non-maximum values in the image.
-    :param image: The image itself as np.uint8, shape of (H, W, 3).
-    :param size: The size of the filter.
+    Green filter for the image.
+    :param hsv_image: The image itself as np.uint8, shape of (H, W, 3).
+    :return: The filtered image.
     """
-    max_filter = maximum_filter(image, size=size)
-    suppressed_image = np.zeros(image.shape)
-    is_local_maximum = (image == max_filter)
-    suppressed_image[is_local_maximum] = image[is_local_maximum]
-    return suppressed_image
+    lower_green = np.array([40, 100, 100])
+    upper_green = np.array([90, 255, 255])
+    return cv2.inRange(hsv_image, lower_green, upper_green)
 
 
-def find_tfl_lights(c_image: np.ndarray) -> \
-        Tuple[RED_X_COORDINATES, RED_Y_COORDINATES, GREEN_X_COORDINATES, GREEN_Y_COORDINATES]:
+def find_centroids(coordinates: np.ndarray, distance_threshold: int = 50) -> np.ndarray:
+    """
+    Find centroids of close points.
+    :param coordinates: Array of (x, y) coordinates.
+    :param distance_threshold: Maximum distance between points to consider them as part of the same cluster.
+    :return: Array of (x, y) coordinates representing the centroids of close points.
+    """
+    if len(coordinates) == 0:
+        return np.empty((0, 2), dtype=int)
+
+    # Calculate pairwise distances between all points
+    pairwise_distances = np.sqrt(np.sum((coordinates[:, None] - coordinates) ** 2, axis=-1))
+
+    # Create a mask to identify points within the distance threshold
+    close_points_mask = pairwise_distances < distance_threshold
+
+    # Create an array to store the centroid coordinates
+    centroids = []
+
+    for mask in close_points_mask:
+        if np.any(mask):
+            # Find the mean coordinates of points within the distance threshold
+            centroid = np.mean(coordinates[mask], axis=0)
+            centroids.append(centroid)
+
+    return np.array(centroids, dtype=int)
+
+
+def crop_and_save(c_image, output_folder, coordinates, color) -> None:
+    """
+    Crop the rectangles from the image and save them.
+    :param c_image: The image itself as np.uint8, shape of (H, W, 3).
+    :param output_folder: The folder to save the cropped images in.
+    :param coordinates: Array of (x, y) coordinates.
+    :param color: The color of the lights.
+    """
+    print(f"Cropping {color} lights for {len(coordinates)} coordinates")
+    for i, (y, x) in enumerate(coordinates):
+        top_left_x = x - 20
+        top_left_y = y - 25 if color == "red" else y - 60
+        bottom_right_x = x + 20
+        bottom_right_y = y + 60 if color == "red" else y + 25
+
+        if top_left_x >= 0 and top_left_y >= 0 and \
+                bottom_right_x < c_image.shape[1] and \
+                bottom_right_y < c_image.shape[0]:
+            cropped_image = c_image[top_left_y:bottom_right_y, top_left_x:bottom_right_x]
+            cv2.imwrite(os.path.join(output_folder, f"{color}_{i}.png"), cropped_image)
+
+
+def extract_rectangles(c_image, red_lights, green_lights) -> None:
+    """
+    Extract rectangles from the image.
+    :param c_image: The image itself as np.uint8, shape of (H, W, 3).
+    :param red_lights: Array of (x, y) coordinates of red lights.
+    :param green_lights: Array of (x, y) coordinates of green lights.
+    """
+    output_folder = "potential_tfl"
+
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    crop_and_save(c_image, output_folder, red_lights, "red")
+    crop_and_save(c_image, output_folder, green_lights, "green")
+
+
+def find_tfl_lights(c_image: np.ndarray) -> Tuple:
     """
     Detect candidates for TFL lights.
     :param c_image: The image itself as np.uint8, shape of (H, W, 3).
     :return: 4-tuple of x_red, y_red, x_green, y_green.
     """
-    # Convert the input RGB image to HSV color space
+    max_filtered_image = maximum_filter(c_image, 2)
+    c_image = cv2.GaussianBlur(max_filtered_image, (3, 3), 0.2)
     hsv_image = cv2.cvtColor(c_image, cv2.COLOR_RGB2HSV)
+    convolved_v_channel = convolve2d(hsv_image[:, :, 2], ut.kernel, mode='same')
 
-    # high pass filter and non-maximum suppression on the v channel
-    v_channel = hsv_image[:, :, 2]
-    convolved_v_channel = non_max_suppression(
-        high_pass_filter(v_channel)
-    )
-    # Define the range of red and green colors in HSV space
-    lower_red = np.array([0, 100, 100])
-    upper_red = np.array([15, 255, 255])
-    lower_green = np.array([40, 100, 100])
-    upper_green = np.array([100, 255, 255])
+    potential = (convolved_v_channel > 125).astype(np.uint8)
+    red_coordinates = np.argwhere(potential & red_filter(hsv_image))
+    green_coordinates = np.argwhere(potential & green_filter(hsv_image))
 
-    # Create masks for red and green regions and for the high-pass filtered image
-    mask = (convolved_v_channel > 150).astype(np.uint8)
-    mask_red = cv2.inRange(hsv_image, lower_red, upper_red) & mask
-    mask_green = cv2.inRange(hsv_image, lower_green, upper_green) & mask
+    red_lights = np.unique(find_centroids(red_coordinates), axis=0)
+    green_lights = np.unique(find_centroids(green_coordinates), axis=0)
 
-    # Find the coordinates of red and green regions
-    red_coords = np.argwhere(mask_red)
-    green_coords = np.argwhere(mask_green)
-
-    # Get the x and y coordinates of red and green regions
-    x_red, y_red = red_coords[:, 1], red_coords[:, 0]
-    x_green, y_green = green_coords[:, 1], green_coords[:, 0]
-
-    return x_red, y_red, x_green, y_green
+    return red_lights, green_lights
 
 
-# GIVEN CODE TO TEST YOUR IMPLEMENTATION AND PLOT THE PICTURES
 def show_image_and_gt(c_image: np.ndarray, objects: Optional[List[POLYGON_OBJECT]], fig_num: int = None):
     # ensure a fresh canvas for plotting the image and objects.
     plt.figure(fig_num).clf()
@@ -120,12 +171,16 @@ def test_find_tfl_lights(image_path: str, image_json_path: Optional[str] = None,
         objects: List[POLYGON_OBJECT] = [image_object for image_object in image_json['objects']
                                          if image_object['label'] in TFL_LABEL]
 
-    show_image_and_gt(c_image, objects, fig_num)
+    cropped = c_image[int(c_image.shape[0] * ut.CROP_TOP):
+                      int(c_image.shape[0] * ut.CROP_BOTTOM), :]
+    show_image_and_gt(cropped, objects, fig_num)
 
-    red_x, red_y, green_x, green_y = find_tfl_lights(c_image)
+    red_lights, green_lights = find_tfl_lights(cropped)
+    extract_rectangles(cropped, red_lights, green_lights)
+
     # 'ro': This specifies the format string. 'r' represents the color red, and 'o' represents circles as markers.
-    plt.plot(red_x, red_y, 'ro', markersize=4)
-    plt.plot(green_x, green_y, 'go', markersize=4)
+    plt.plot(red_lights[:, 1], red_lights[:, 0], 'ro', markersize=4)
+    plt.plot(green_lights[:, 1], green_lights[:, 0], 'go', markersize=4)
 
 
 def main(argv=None):
