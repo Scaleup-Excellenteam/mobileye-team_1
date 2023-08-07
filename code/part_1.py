@@ -1,4 +1,3 @@
-import os
 from typing import List, Optional, Union, Dict, Tuple
 import json
 import argparse
@@ -9,18 +8,20 @@ from PIL import Image
 import matplotlib.pyplot as plt
 from scipy.ndimage import maximum_filter
 from scipy.signal import convolve2d
-
-
 import utils as ut
+import pandas as pd
+import consts as C
+import crops as crp
 
-
-DEFAULT_BASE_DIR: str = './test2'
+DEFAULT_BASE_DIR: str = '../test3'
 TFL_LABEL = ['traffic light']
 POLYGON_OBJECT = Dict[str, Union[str, List[int]]]
 RED_X_COORDINATES = List[int]
 RED_Y_COORDINATES = List[int]
 GREEN_X_COORDINATES = List[int]
 GREEN_Y_COORDINATES = List[int]
+
+result_df = pd.DataFrame(columns=[C.X, C.Y, C.COLOR, C.SEQ_IMAG, C.IMAG_PATH, C.GTIM_PATH])
 
 
 def red_filter(hsv_image) -> np.ndarray:
@@ -73,42 +74,39 @@ def find_centroids(coordinates: np.ndarray, distance_threshold: int = 50) -> np.
     return np.array(centroids, dtype=int)
 
 
-def crop_and_save(c_image, output_folder, coordinates, color) -> None:
+def add_to_df(c_image, red_lights, green_lights, seq_img, image_path, image_json_path) -> None:
     """
-    Crop the rectangles from the image and save them.
-    :param c_image: The image itself as np.uint8, shape of (H, W, 3).
-    :param output_folder: The folder to save the cropped images in.
-    :param coordinates: Array of (x, y) coordinates.
-    :param color: The color of the lights.
-    """
-    print(f"Cropping {color} lights for {len(coordinates)} coordinates")
-    for i, (y, x) in enumerate(coordinates):
-        top_left_x = x - 20
-        top_left_y = y - 25 if color == "red" else y - 60
-        bottom_right_x = x + 20
-        bottom_right_y = y + 60 if color == "red" else y + 25
-
-        if top_left_x >= 0 and top_left_y >= 0 and \
-                bottom_right_x < c_image.shape[1] and \
-                bottom_right_y < c_image.shape[0]:
-            cropped_image = c_image[top_left_y:bottom_right_y, top_left_x:bottom_right_x]
-            cv2.imwrite(os.path.join(output_folder, f"{color}_{i}.png"), cropped_image)
-
-
-def extract_rectangles(c_image, red_lights, green_lights) -> None:
-    """
-    Extract rectangles from the image.
+    Extract the rectangles from the image.
     :param c_image: The image itself as np.uint8, shape of (H, W, 3).
     :param red_lights: Array of (x, y) coordinates of red lights.
     :param green_lights: Array of (x, y) coordinates of green lights.
+    :param seq_img: The sequence number of the image.
+    :param image_json_path: The path to the json file of the image.
     """
-    output_folder = "potential_tfl"
 
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
+    global result_df
 
-    crop_and_save(c_image, output_folder, red_lights, "red")
-    crop_and_save(c_image, output_folder, green_lights, "green")
+    for light in red_lights:
+        df_red = {
+            C.X: light[1],
+            C.Y: light[0],
+            C.COLOR: C.RED,
+            C.SEQ_IMAG: seq_img,
+            C.IMAG_PATH: image_path,
+            C.GTIM_PATH: image_json_path
+        }
+        result_df = result_df._append(df_red, ignore_index=True)
+
+    for light in green_lights:
+        df_green = {
+            C.X: light[1],
+            C.Y: light[0],
+            C.COLOR: C.GREEN,
+            C.SEQ_IMAG: seq_img,
+            C.IMAG_PATH: image_path,
+            C.GTIM_PATH: image_json_path
+        }
+        result_df = result_df._append(df_green, ignore_index=True)
 
 
 def find_tfl_lights(c_image: np.ndarray) -> Tuple:
@@ -156,7 +154,7 @@ def show_image_and_gt(c_image: np.ndarray, objects: Optional[List[POLYGON_OBJECT
             plt.legend()
 
 
-def test_find_tfl_lights(image_path: str, image_json_path: Optional[str] = None, fig_num=None):
+def test_find_tfl_lights(image_path: str, image_json_path: Optional[str] = None, fig_num=None, seq_img=None):
     """
     Run the attention code.
     """
@@ -174,9 +172,9 @@ def test_find_tfl_lights(image_path: str, image_json_path: Optional[str] = None,
     cropped = c_image[int(c_image.shape[0] * ut.CROP_TOP):
                       int(c_image.shape[0] * ut.CROP_BOTTOM), :]
     show_image_and_gt(cropped, objects, fig_num)
-
     red_lights, green_lights = find_tfl_lights(cropped)
-    extract_rectangles(cropped, red_lights, green_lights)
+
+    add_to_df(cropped, red_lights, green_lights, seq_img, image_path, image_json_path)
 
     # 'ro': This specifies the format string. 'r' represents the color red, and 'o' represents circles as markers.
     plt.plot(red_lights[:, 1], red_lights[:, 0], 'ro', markersize=4)
@@ -191,12 +189,12 @@ def main(argv=None):
 
     :param argv: In case you want to programmatically run this.
     """
-
     parser = argparse.ArgumentParser("Test TFL attention mechanism")
     parser.add_argument('-i', '--image', type=str, help='Path to an image')
     parser.add_argument("-j", "--json", type=str, help="Path to image json file -> GT for comparison")
     parser.add_argument('-d', '--dir', type=str, help='Directory to scan images in')
     args = parser.parse_args(argv)
+    tfls_df = pd.read_csv('../data/tfls.csv')
 
     # If you entered a custom dir to run from or the default dir exist in your project then:
     print(DEFAULT_BASE_DIR)
@@ -210,13 +208,22 @@ def main(argv=None):
             image_path: str = image.as_posix()
             path: Optional[str] = image_path.replace('_leftImg8bit.png', '_gtFine_polygons.json')
             image_json_path: Optional[str] = path if Path(path).exists() else None
-            test_find_tfl_lights(image_path, image_json_path)
+
+            matching_rows = tfls_df[tfls_df['imag_path'] == f"fullImages\\{image_path.split('/')[-1]}"]
+
+            seq_img = matching_rows['seq_imag'].values[0]
+
+            test_find_tfl_lights(image_path, image_json_path, seq_img=seq_img)
 
     if args.image and args.json:
         test_find_tfl_lights(args.image, args.json)
     elif args.image:
         test_find_tfl_lights(args.image)
     plt.show(block=True)
+
+    print(result_df)
+    crp.create_crops(result_df)
+
 
 
 if __name__ == '__main__':
