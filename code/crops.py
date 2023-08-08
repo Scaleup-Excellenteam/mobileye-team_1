@@ -60,10 +60,7 @@ def make_crop(*args, **kwargs):
     img = Image.open(img_path)
     c_image = np.array(img)
 
-    cropped = c_image[int(c_image.shape[0] * ut.CROP_TOP):
-                      int(c_image.shape[0] * ut.CROP_BOTTOM), :]
-
-    cropped_image = cropped[y1: y0, x1: x0]
+    cropped_image = c_image[y1: y0, x1: x0]
 
     return x0, x1, y0, y1, cropped_image
 

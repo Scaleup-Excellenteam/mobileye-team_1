@@ -158,10 +158,15 @@ def test_find_tfl_lights(image_path: str, image_json_path: Optional[str] = None,
         objects: List[POLYGON_OBJECT] = [image_object for image_object in image_json['objects']
                                          if image_object['label'] in TFL_LABEL]
 
+    copy = np.ones(c_image.shape, dtype=np.uint8) * 255
+    copy[int(c_image.shape[0] * ut.CROP_TOP):
+                      int(c_image.shape[0] * ut.CROP_BOTTOM), :] = c_image[int(c_image.shape[0] * ut.CROP_TOP):
+                      int(c_image.shape[0] * ut.CROP_BOTTOM), :]
+
     cropped = c_image[int(c_image.shape[0] * ut.CROP_TOP):
                       int(c_image.shape[0] * ut.CROP_BOTTOM), :]
-    show_image_and_gt(cropped, objects, fig_num)
-    red_lights, green_lights = find_tfl_lights(cropped)
+    show_image_and_gt(copy, objects, fig_num)
+    red_lights, green_lights = find_tfl_lights(copy)
 
     add_to_df(red_lights, C.RED, seq_img, image_path, image_json_path)
     add_to_df(green_lights, C.GREEN, seq_img, image_path, image_json_path)
