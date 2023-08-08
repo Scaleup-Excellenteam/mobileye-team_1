@@ -1,11 +1,11 @@
 from pathlib import Path
 from typing import Dict, Any, List
-
 import cv2
-
+import json
 import consts as C
 from pandas import DataFrame
 from PIL import Image
+from shapely.geometry import Polygon
 import numpy as np
 import utils as ut
 
@@ -71,7 +71,34 @@ def check_crop(*args, **kwargs):
     Try using the ground truth to do that (Hint: easier than you think for the simple cases, and if you found a hard
     one, just ignore it for now :). )
     """
-    return True, True
+    json_path = args[0]
+    x0, x1, y0, y1 = args[1], args[2], args[3], args[4]
+
+    rectangle_coords = [(x0, y0), (x0, y1), (x1, y1), (x1, y0)]  # Rectangle vertices
+    polygons = []  # List to store Polygon objects
+
+    with open(json_path, 'r') as json_file:
+        data = json.load(json_file)
+
+    # Extract the objects list
+    objects = data.get("objects", [])
+
+    for item in objects:
+        label = item.get("label", "")
+
+        if label == "traffic light":
+            polygon_coords = item.get("polygon", [])
+            polygon = Polygon(polygon_coords)  # Create Polygon object
+            polygons.append(polygon)
+
+    # Check if the rectangle intersects with any of the polygons
+    rectangle = Polygon(rectangle_coords)
+
+    for polygon in polygons:
+        if polygon.exterior.intersects(rectangle):
+            return True, False
+
+    return False, False
 
 
 def save_for_part_2(crops_df: DataFrame):
@@ -115,7 +142,7 @@ def create_crops(df: DataFrame) -> DataFrame:
         crop_path: str = f'../data/crops/crop{index}{row[SEQ_IMAG]}.png'
         cv2.imwrite(crop_path, cv2.cvtColor(crop, cv2.COLOR_RGB2BGR))
         result_template[CROP_PATH] = crop_path
-        result_template[IS_TRUE], result_template[IGNOR] = check_crop(row[GTIM_PATH], crop)
+        result_template[IS_TRUE], result_template[IGNOR] = check_crop(row[GTIM_PATH], x0, x1, y0, y1)
 
         # added to current row to the result DataFrame that will serve you as the input to part 2 B).
         result_df = result_df._append(result_template, ignore_index=True)

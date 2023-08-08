@@ -135,7 +135,7 @@ def show_image_and_gt(c_image: np.ndarray, objects: Optional[List[POLYGON_OBJECT
             # gets the x coordinates (first column -> 0) anf y coordinates (second column -> 1)
             x_coordinates, y_coordinates = polygon_array[:, 0], polygon_array[:, 1]
             color = 'r'
-            # plt.plot(x_coordinates, y_coordinates, color, label=image_object['label'])
+            plt.plot(x_coordinates, y_coordinates, color, label=image_object['label'])
             labels.add(image_object['label'])
         if 1 < len(labels):
             # The legend provides a visual representation of the labels associated with the plotted objects.
