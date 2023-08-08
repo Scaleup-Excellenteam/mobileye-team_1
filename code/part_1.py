@@ -74,39 +74,28 @@ def find_centroids(coordinates: np.ndarray, distance_threshold: int = 50) -> np.
     return np.array(centroids, dtype=int)
 
 
-def add_to_df(c_image, red_lights, green_lights, seq_img, image_path, image_json_path) -> None:
+def add_to_df(lights, color, seq_img, image_path, image_json_path) -> None:
     """
-    Extract the rectangles from the image.
-    :param c_image: The image itself as np.uint8, shape of (H, W, 3).
-    :param red_lights: Array of (x, y) coordinates of red lights.
-    :param green_lights: Array of (x, y) coordinates of green lights.
-    :param seq_img: The sequence number of the image.
-    :param image_json_path: The path to the json file of the image.
+    Add the lights to the result dataframe.
+    :param red_lights: List of red lights coordinates.
+    :param green_lights: List of green lights coordinates.
+    :param seq_img: The sequence image number.
+    :param image_path: The image path.
+    :param image_json_path: The image json path.
     """
 
     global result_df
 
-    for light in red_lights:
-        df_red = {
+    for light in lights:
+        df = {
             C.X: light[1],
             C.Y: light[0],
-            C.COLOR: C.RED,
+            C.COLOR: color,
             C.SEQ_IMAG: seq_img,
             C.IMAG_PATH: image_path,
             C.GTIM_PATH: image_json_path
         }
-        result_df = result_df._append(df_red, ignore_index=True)
-
-    for light in green_lights:
-        df_green = {
-            C.X: light[1],
-            C.Y: light[0],
-            C.COLOR: C.GREEN,
-            C.SEQ_IMAG: seq_img,
-            C.IMAG_PATH: image_path,
-            C.GTIM_PATH: image_json_path
-        }
-        result_df = result_df._append(df_green, ignore_index=True)
+        result_df = result_df._append(df, ignore_index=True)
 
 
 def find_tfl_lights(c_image: np.ndarray) -> Tuple:
@@ -174,7 +163,8 @@ def test_find_tfl_lights(image_path: str, image_json_path: Optional[str] = None,
     show_image_and_gt(cropped, objects, fig_num)
     red_lights, green_lights = find_tfl_lights(cropped)
 
-    add_to_df(cropped, red_lights, green_lights, seq_img, image_path, image_json_path)
+    add_to_df(red_lights, C.RED, seq_img, image_path, image_json_path)
+    add_to_df(green_lights, C.GREEN, seq_img, image_path, image_json_path)
 
     # 'ro': This specifies the format string. 'r' represents the color red, and 'o' represents circles as markers.
     plt.plot(red_lights[:, 1], red_lights[:, 0], 'ro', markersize=4)

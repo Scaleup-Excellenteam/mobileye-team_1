@@ -115,12 +115,10 @@ def create_crops(df: DataFrame) -> DataFrame:
 
         x0, x1, y0, y1, crop = make_crop(img_path=row[IMAG_PATH], x=row[X], y=row[Y], color=row[COLOR])
         result_template[X0], result_template[X1], result_template[Y0], result_template[Y1] = x0, x1, y0, y1
-        crop_path: str = f'../data/crops/crop{index}.png'
+        crop_path: str = f'../data/crops/crop{index}{row[SEQ_IMAG]}.png'
         cv2.imwrite(crop_path, cv2.cvtColor(crop, cv2.COLOR_RGB2BGR))
         result_template[CROP_PATH] = crop_path
-        result_template[IS_TRUE], result_template[IGNOR] = check_crop(df[GTIM_PATH],
-                                                                      crop,
-                                                                      'everything_else_you_need_here')
+        result_template[IS_TRUE], result_template[IGNOR] = check_crop(row[GTIM_PATH], crop)
 
         # added to current row to the result DataFrame that will serve you as the input to part 2 B).
         result_df = result_df._append(result_template, ignore_index=True)
