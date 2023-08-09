@@ -15,7 +15,7 @@ import crops as crp
 from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import StandardScaler
 
-DEFAULT_BASE_DIR: str = '../test3'
+DEFAULT_BASE_DIR: str = '../leftImg8bit_trainvaltest/leftImg8bit/train'
 TFL_LABEL = ['traffic light']
 POLYGON_OBJECT = Dict[str, Union[str, List[int]]]
 RED_X_COORDINATES = List[int]
@@ -172,17 +172,17 @@ def test_find_tfl_lights(image_path: str, image_json_path: Optional[str] = None,
                       int(c_image.shape[0] * ut.CROP_BOTTOM), :] = c_image[int(c_image.shape[0] * ut.CROP_TOP):
                       int(c_image.shape[0] * ut.CROP_BOTTOM), :]
 
-    cropped = c_image[int(c_image.shape[0] * ut.CROP_TOP):
-                      int(c_image.shape[0] * ut.CROP_BOTTOM), :]
-    show_image_and_gt(copy, objects, fig_num)
+    # cropped = c_image[int(c_image.shape[0] * ut.CROP_TOP):
+    #                   int(c_image.shape[0] * ut.CROP_BOTTOM), :]
+    #show_image_and_gt(copy, objects, fig_num)
     red_lights, green_lights = find_tfl_lights(copy)
 
     add_to_df(red_lights, C.RED, seq_img, image_path, image_json_path)
     add_to_df(green_lights, C.GREEN, seq_img, image_path, image_json_path)
 
     # 'ro': This specifies the format string. 'r' represents the color red, and 'o' represents circles as markers.
-    plt.plot(red_lights[:, 1], red_lights[:, 0], 'ro', markersize=4)
-    plt.plot(green_lights[:, 1], green_lights[:, 0], 'go', markersize=4)
+    # plt.plot(red_lights[:, 1], red_lights[:, 0], 'ro', markersize=4)
+    # plt.plot(green_lights[:, 1], green_lights[:, 0], 'go', markersize=4)
 
 
 def main(argv=None):
@@ -205,7 +205,7 @@ def main(argv=None):
     directory_path: Path = Path(args.dir or DEFAULT_BASE_DIR)
     if directory_path.exists():
         # gets a list of all the files in the directory that ends with "_leftImg8bit.png".
-        file_list: List[Path] = list(directory_path.glob('*_leftImg8bit.png'))
+        file_list: List[Path] = list(directory_path.rglob('*_leftImg8bit.png'))
 
         for image in file_list:
             # Convert the Path object to a string using as_posix() method
@@ -213,11 +213,7 @@ def main(argv=None):
             path: Optional[str] = image_path.replace('_leftImg8bit.png', '_gtFine_polygons.json')
             image_json_path: Optional[str] = path if Path(path).exists() else None
 
-            #matching_rows = tfls_df[tfls_df['imag_path'] == f"fullImages\\{image_path.split('/')[-1]}"]
-
-            #seq_img = matching_rows['seq_imag'].values[0]
             seq_img = 0
-
             test_find_tfl_lights(image_path, image_json_path, seq_img=seq_img)
 
     if args.image and args.json:
