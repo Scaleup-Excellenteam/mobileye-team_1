@@ -12,6 +12,8 @@ import utils as ut
 import pandas as pd
 import consts as C
 import crops as crp
+from sklearn.cluster import DBSCAN
+from sklearn.preprocessing import StandardScaler
 
 DEFAULT_BASE_DIR: str = '../test3'
 TFL_LABEL = ['traffic light']
@@ -46,30 +48,34 @@ def green_filter(hsv_image) -> np.ndarray:
     return cv2.inRange(hsv_image, lower_green, upper_green)
 
 
-def find_centroids(coordinates: np.ndarray, distance_threshold: int = 50) -> np.ndarray:
+def find_centroids(coordinates: np.ndarray, eps: float = 40, min_samples: int = 1):
     """
-    Find centroids of close points.
+    Find centroids of close points using DBSCAN.
     :param coordinates: Array of (x, y) coordinates.
-    :param distance_threshold: Maximum distance between points to consider them as part of the same cluster.
-    :return: Array of (x, y) coordinates representing the centroids of close points.
+    :param eps: Maximum distance between points to consider them as part of the same cluster.
+    :param min_samples: The minimum number of samples required in a cluster.
+    :return: Array of (x, y) coordinates representing the centroids of clusters.
     """
     if len(coordinates) == 0:
-        return np.empty((0, 2), dtype=int)
+        return np.empty((0, 2), dtype=float)
 
-    # Calculate pairwise distances between all points
-    pairwise_distances = np.sqrt(np.sum((coordinates[:, None] - coordinates) ** 2, axis=-1))
+    # Apply DBSCAN
+    dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+    cluster_labels = dbscan.fit_predict(coordinates)
 
-    # Create a mask to identify points within the distance threshold
-    close_points_mask = pairwise_distances < distance_threshold
+    # Create a dictionary to store cluster points
+    cluster_points = {}
+    for label, point in zip(cluster_labels, coordinates):
+        if label != -1:  # Skip noise points
+            if label not in cluster_points:
+                cluster_points[label] = []
+            cluster_points[label].append(point)
 
-    # Create an array to store the centroid coordinates
+    # Calculate centroids
     centroids = []
-
-    for mask in close_points_mask:
-        if np.any(mask):
-            # Find the mean coordinates of points within the distance threshold
-            centroid = np.mean(coordinates[mask], axis=0)
-            centroids.append(centroid)
+    for label, points in cluster_points.items():
+        centroid = np.mean(points, axis=0)
+        centroids.append(centroid)
 
     return np.array(centroids, dtype=int)
 
@@ -113,8 +119,11 @@ def find_tfl_lights(c_image: np.ndarray) -> Tuple:
     red_coordinates = np.argwhere(potential & red_filter(hsv_image))
     green_coordinates = np.argwhere(potential & green_filter(hsv_image))
 
-    red_lights = np.unique(find_centroids(red_coordinates), axis=0)
-    green_lights = np.unique(find_centroids(green_coordinates), axis=0)
+    # red_lights = np.unique(find_centroids(red_coordinates), axis=0)
+    # green_lights = np.unique(find_centroids(green_coordinates), axis=0)
+
+    red_lights = find_centroids(red_coordinates)
+    green_lights = find_centroids(green_coordinates)
 
     return red_lights, green_lights
 
@@ -189,7 +198,7 @@ def main(argv=None):
     parser.add_argument("-j", "--json", type=str, help="Path to image json file -> GT for comparison")
     parser.add_argument('-d', '--dir', type=str, help='Directory to scan images in')
     args = parser.parse_args(argv)
-    tfls_df = pd.read_csv('../data/tfls.csv')
+    # tfls_df = pd.read_csv('../data/tfls.csv')
 
     # If you entered a custom dir to run from or the default dir exist in your project then:
     print(DEFAULT_BASE_DIR)
@@ -204,9 +213,10 @@ def main(argv=None):
             path: Optional[str] = image_path.replace('_leftImg8bit.png', '_gtFine_polygons.json')
             image_json_path: Optional[str] = path if Path(path).exists() else None
 
-            matching_rows = tfls_df[tfls_df['imag_path'] == f"fullImages\\{image_path.split('/')[-1]}"]
+            #matching_rows = tfls_df[tfls_df['imag_path'] == f"fullImages\\{image_path.split('/')[-1]}"]
 
-            seq_img = matching_rows['seq_imag'].values[0]
+            #seq_img = matching_rows['seq_imag'].values[0]
+            seq_img = 0
 
             test_find_tfl_lights(image_path, image_json_path, seq_img=seq_img)
 
@@ -218,7 +228,6 @@ def main(argv=None):
 
     print(result_df)
     crp.create_crops(result_df)
-
 
 
 if __name__ == '__main__':

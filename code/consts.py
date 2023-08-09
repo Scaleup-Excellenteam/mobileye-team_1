@@ -40,7 +40,7 @@ TRAIN_TEST_VAL = 'train_test_val'
 
 # What's in the TRAIN_TEST_VAL column?
 TRAIN = 'train'
-TEST = 'test'
+TEST = 'test1'
 VALIDATION = 'validation'
 
 # Crop size:

@@ -94,11 +94,16 @@ def check_crop(*args, **kwargs):
     # Check if the rectangle intersects with any of the polygons
     rectangle = Polygon(rectangle_coords)
 
+    intersect = False
+
     for polygon in polygons:
         if polygon.exterior.intersects(rectangle):
-            return True, False
+            if not intersect:
+                intersect = True
+            else:
+                return False, True
 
-    return False, False
+    return intersect, False
 
 
 def save_for_part_2(crops_df: DataFrame):
@@ -139,13 +144,16 @@ def create_crops(df: DataFrame) -> DataFrame:
 
         x0, x1, y0, y1, crop = make_crop(img_path=row[IMAG_PATH], x=row[X], y=row[Y], color=row[COLOR])
         result_template[X0], result_template[X1], result_template[Y0], result_template[Y1] = x0, x1, y0, y1
-        crop_path: str = f'../data/crops/crop{index}{row[SEQ_IMAG]}.png'
-        cv2.imwrite(crop_path, cv2.cvtColor(crop, cv2.COLOR_RGB2BGR))
-        result_template[CROP_PATH] = crop_path
-        result_template[IS_TRUE], result_template[IGNOR] = check_crop(row[GTIM_PATH], x0, x1, y0, y1)
+        crop_path: str = f'../data/crops/crop{index}.png'
 
-        # added to current row to the result DataFrame that will serve you as the input to part 2 B).
-        result_df = result_df._append(result_template, ignore_index=True)
+        img = np.array(Image.open(row[IMAG_PATH]))
+        if x0 <= img.shape[1] and x1 >= 0 and y0 <= img.shape[0] and y1 >= 0:
+            cv2.imwrite(crop_path, cv2.cvtColor(crop, cv2.COLOR_RGB2BGR))
+            result_template[CROP_PATH] = crop_path
+            result_template[IS_TRUE], result_template[IGNOR] = check_crop(row[GTIM_PATH], x0, x1, y0, y1)
+            # added to current row to the result DataFrame that will serve you as the input to part 2 B).
+            result_df = result_df._append(result_template, ignore_index=True)
+
 
     # A Short function to help you save the whole thing - your welcome ;)
     save_for_part_2(result_df)
